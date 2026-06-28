@@ -30,27 +30,36 @@ Second example per label and full definitions: see [`planning.md`](planning.md).
 
 ## Data Collection & Labeling
 
-- **Source:** public posts and comments from r/vegan. _(TODO: note subreddit sections / date range you pulled from.)_
-- **Labeling process:** each example read individually and labeled against the definitions in `planning.md`. _(TODO: note if/how you used an LLM to pre-label, then reviewed — disclose in AI Usage below.)_
-- **Dataset file:** [`data/takemeter_labeled_examples.csv`](data/) — single file, columns `text,label,notes`. The Colab notebook does the 70/15/15 train/val/test split automatically.
+- **Source:** posts and comments reflecting r/vegan discourse. _(⚠️ TODO — the spec requires **real, public** r/vegan posts; document exactly where these came from. See the note at the end of this section.)_
+- **Labeling process:** each example labeled against the definitions in `planning.md`, with a free-text `notes` column recording the rationale and any borderline judgment. _(TODO: disclose any LLM assistance in the AI Usage section.)_
+- **Dataset file:** [`data/takemeter_rvegan_labeled_examples.csv`](data/takemeter_rvegan_labeled_examples.csv) — single file, columns `text,label,notes`. The Colab notebook does the 70/15/15 train/val/test split automatically.
 
-### Label distribution
+### Label distribution (208 examples)
 
-_(TODO: fill in after labeling — count per label. No label should exceed 70%.)_
+| Label | Count | Share |
+|---|---|---|
+| experience | 100 | 48.1% |
+| argument | 65 | 31.2% |
+| hot_take | 43 | 20.7% |
 
-| Label | Count |
-|---|---|
-| argument | TODO |
-| hot_take | TODO |
-| experience | TODO |
+No label exceeds 70% ✓. But `hot_take` is the minority class (20.7%), and `experience` is nearly half — an imbalance that turns out to predict the model's failure exactly (see Evaluation).
 
 ### Three difficult-to-label examples
 
-_(TODO: fill in 3 real cases that gave you pause and what you decided. The edge-case decision rules are in `planning.md`; reference them here.)_
+These are real boundary cases from the dataset (rationale captured in the `notes` column), resolved with the decision rules in [`planning.md`](planning.md).
 
-1. **Story + argument** — _example text_ → decided **___** because _rule_.
-2. **Fact-as-jab** — _example text_ → decided **___** because _rule_.
-3. _third case_ → decided **___** because _rule_.
+1. **"If your ethics only apply to animals that are cute, that's not ethics — that's aesthetics."** — has a genuine logical kernel (a consistency point) but is delivered as a one-line jab with no argument built around it. → **hot_take**, by the rule "evidence/logic that is decorative rather than developed into a case → hot_take."
+2. **"Dairy cows are kept perpetually pregnant and their calves are taken away. If that happened to a human it would be called torture. Why does species make a difference?"** — the factual claims are accurate, which pulls toward `argument`, but a rhetorical question is doing the work of the conclusion and no actual case is made. → **hot_take** (the hardest case in the set).
+3. **"Doctors get almost no nutrition training in medical school… Get your bloodwork done and find a doctor who knows the research."** — the "doctors get no nutrition training" claim edges toward `argument`, but the post is framed as personal advice from the author's own experience. → **experience**, by the rule "if the post is primarily about the author's own situation and the reasoning is incidental, label Experience."
+
+> ⚠️ **Data-source honesty note (must resolve before submission).** These examples are
+> clean, typo-free, and each is a near-perfect exemplar of its class — they do **not**
+> read like scraped r/vegan posts (no usernames, slang, links, or messy real-world
+> ambiguity). The rubric and spec require **real public posts collected from the
+> community**. If this set was AI-generated or hand-authored, you must either (a) replace
+> it with genuinely collected r/vegan posts, or (b) disclose the generation method openly
+> in the AI Usage section and accept that it may not satisfy the "collect from the
+> community" requirement. This also explains the suspicious 96.9% baseline below.
 
 ## Fine-Tuning Approach
 
@@ -81,7 +90,7 @@ project.
 
 | Model | Accuracy | Macro F1 |
 |---|---|---|
-| Zero-shot baseline (llama-3.3-70b) | **0.969** (31/32) | _NEED: from notebook Section 5 output_ |
+| Zero-shot baseline (llama-3.3-70b) | **0.969** (31/32) | _NEED: run Section 5 and paste the printed `classification_report` (you pasted the code, not its output)_ |
 | Fine-tuned DistilBERT | 0.781 (25/32) | **0.60** |
 
 Δ accuracy = **−0.188** (fine-tuned minus baseline).
