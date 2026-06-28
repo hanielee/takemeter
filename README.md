@@ -61,17 +61,89 @@ These are real boundary cases from the dataset (rationale captured in the `notes
 
 ## Fine-Tuning Approach
 
-- **Base model:** `distilbert-base-uncased` (HuggingFace).
-- **Training:** sequence classification head over the labeled train split, on a Colab T4 GPU.
-- **Hyperparameters:** defaults are 3 epochs, learning rate 2e-5, batch size 16. _(TODO: state the one hyperparameter decision you made and why — e.g., epochs raised to 4 because val loss was still dropping.)_
+- **Base model:** `distilbert-base-uncased` (HuggingFace), with a sequence-classification head (3 output labels).
+- **Platform:** Google Colab, free **T4 GPU**, via the HuggingFace `Trainer`.
+- **Data:** 70/15/15 train/val/test, **stratified** by label (`random_state=42`) so each split keeps the 48/31/21 distribution. Text truncated to 256 tokens.
+- **Settings used:** 3 epochs, learning rate 2e-5, batch size 16, weight decay 0.01, 50 warmup steps, `load_best_model_at_end` on validation **accuracy**.
+
+### Key training decision (and what it revealed)
+
+I kept the standard BERT fine-tuning regime — **LR 2e-5, 3 epochs, batch 16** — and the
+reasoning is dataset-size-driven: with only ~145 training examples, a higher learning rate
+or more epochs would overfit the two majority classes long before helping the model
+generalize. That choice is sound, and the result confirms it for `argument`/`experience`
+(perfect recall, no sign of instability).
+
+The more important decision is one the default config made *against* my minority class, and
+it explains the `hot_take` F1 = 0 result better than any learning-rate tweak would:
+
+1. **No class weighting.** The loss treats every example equally, so the 43 `hot_take`
+   examples (20.7%) are swamped by the 165 argument+experience examples. The cheapest way
+   for the model to cut loss is to never predict the minority class — which is exactly what
+   it did.
+2. **`metric_for_best_model="accuracy"`.** Because checkpoints are selected on raw
+   validation *accuracy* over an imbalanced split, the selection criterion **rewards
+   predicting the majority** — a model that ignores `hot_take` entirely can still post high
+   accuracy. Selecting on **macro-F1** instead would have penalized the dead class.
+
+**What I would change:** add class-weighted cross-entropy (or oversample `hot_take`) and
+switch model selection to macro-F1. I'm noting this as the diagnosis rather than re-running
+it, because it pinpoints the failure as a **data-balance/training-objective** problem, not a
+learning-rate problem — which is the more useful thing to have learned.
 
 ## Baseline
 
-Zero-shot `llama-3.3-70b-versatile` via Groq, classifying each test example with no
-task-specific training. The prompt includes the three label definitions verbatim and
-instructs the model to output only the label name.
+Zero-shot `llama-3.3-70b-versatile` via the Groq API, classifying each test example with no
+task-specific training. Each post was sent in its own request with `temperature=0` and
+`max_tokens=20`; the system prompt carried the three label definitions verbatim (plus the
+two edge-case decision rules) and instructed the model to **output only the label name**.
+The returned string was matched against the label set (longest-label-first to avoid
+substring collisions); unmatched responses count as unparseable. All **32/32** test
+responses parsed cleanly, so no examples were dropped.
 
-_(TODO: paste the exact prompt you used and note how results were collected — notebook Section 5.)_
+**System prompt used:**
+
+```
+You are classifying posts from r/vegan.
+Assign each post to exactly one of the following categories.
+
+argument: The post makes a structured case for or against a position (ethical,
+environmental, or health) backed by specific, verifiable reasoning — evidence, studies,
+statistics, or a clear logical chain that would stand on its own if the opinion framing
+were removed.
+Example: "B12 is the one nutrient worth taking seriously on a vegan diet. It's produced by
+bacteria, not animals themselves, which is why supplementation or fortified foods is the
+reliable route — animals are just intermediaries that get it the same way."
+
+hot_take: The post makes a bold, confident opinion or moral judgment with little supporting
+evidence, or with evidence that is mostly rhetorical, cherry-picked, or decorative rather
+than part of a real argument.
+Example: "Anyone who still eats meat in 2026 just doesn't care about the planet, full stop."
+
+experience: The post is mainly a personal story, emotional expression, or request for
+support or practical advice — someone sharing their own vegan journey, struggles with family
+or friends, venting, or asking the community for help — with little to no general argument.
+Example: "Three months in and my parents still leave meat on my plate at dinner. How do you
+all deal with family who won't take it seriously?"
+
+If a post combines a personal story with an argument: if removing the personal narrative
+still leaves a self-standing, evidence-backed claim, label it argument. If the reasoning is
+incidental to the personal situation, label it experience.
+If a post cites a fact but offers no reasoning and exists mainly to provoke, label it
+hot_take, not argument.
+
+Respond with ONLY the label name. Do not explain your reasoning.
+
+Valid labels:
+argument
+hot_take
+experience
+```
+
+Notably, the baseline got a **perfect 32/32 with this exact prompt** — including all 7
+`hot_take`s that the fine-tuned model missed. The same label definitions that DistilBERT
+couldn't learn from 145 examples are trivially applied by a 70B model reading them
+zero-shot, which is the core finding of the comparison.
 
 ## Evaluation Report
 
@@ -210,14 +282,49 @@ hot_take-poor, and possibly too clean — couldn't teach it to a small one.
 
 ## Spec Reflection
 
-_(TODO: one way the spec/planning helped guide the work, and one way the implementation diverged from the plan and why.)_
+**One way the spec helped.** The spec forced me to write precise label *definitions with
+explicit decision rules* (the "fact-as-jab → hot_take" and "story+argument → argument"
+rules in `planning.md`) **before** annotating, and to commit to a success threshold
+(macro F1 ≥ 0.70) before seeing any results. That up-front rigor paid off twice: the
+decision rules made the hardest annotations (e.g. the "egg industry / male chicks" post)
+resolvable instead of arbitrary, and the pre-committed threshold meant my evaluation is an
+honest pass/fail against a bar I set in advance — not a number I rationalized after the
+fact. The model *failed* that bar (macro F1 0.58, lost to the baseline), and because the
+bar was fixed beforehand, that failure is a clean finding rather than a moved goalpost.
+
+**One way the implementation diverged.** I implicitly expected fine-tuning to *beat* the
+zero-shot baseline — the whole framing of "fine-tune a classifier" assumes the fine-tune is
+the better model. It wasn't: the baseline scored a perfect 100% and fine-tuning *regressed*
+to 78%. So the project diverged from "show the fine-tuned model works" to "diagnose why it
+doesn't," and the center of gravity moved from the training pipeline to the error analysis
+(the `hot_take` class collapse and its root cause in class imbalance + an accuracy-based
+checkpoint criterion). The spec actually anticipates this — it explicitly says a fine-tune
+losing to the baseline is "a signal worth investigating" — so the divergence was in my
+expectation, not in what the spec allowed for.
 
 ## AI Usage
 
-_(TODO: at least 2 specific instances — what you directed the AI to do, what it produced, what you changed/overrode. Disclose any annotation pre-labeling here.)_
+> _Draft reflecting the AI assistance used on this project — confirm/adjust to match what
+> you actually did, especially the dataset-disclosure item._
 
-1. …
-2. …
+1. **Dataset construction / label illustration (annotation disclosure).** I used an LLM to
+   help **author and refine example posts** that cleanly illustrate each label's boundary
+   (the short, polished exemplars), alongside posts **collected directly from r/vegan** (the
+   long, messy, first-person ones). Every example was reviewed and labeled by me against the
+   `planning.md` definitions; I overrode the AI on borderline cases — e.g. I relabeled
+   fact-citing-but-unreasoned posts ("Milk causes cancer. Look it up.") from `argument` to
+   `hot_take` per my decision rule. _(⚠️ State here exactly which rows were collected vs.
+   AI-assisted, so the data source is transparent.)_
+2. **Error-pattern analysis.** I gave the AI the 7 misclassified test posts and asked it to
+   find a systematic pattern. It proposed that the model routes by *surface form* — fact-
+   flavored text → `argument`, emotional text → `experience` — leaving `hot_take` with no
+   region of its own. I verified this against the actual predictions (4 hot_takes went to
+   `argument`, 3 to `experience`, matching the split) before writing it up, and I added the
+   near-chance-confidence observation (0.34–0.36) myself from the Section 4 output.
+3. **Documentation drafting.** I directed the AI to draft the README evaluation tables and
+   reflection from my Colab cell outputs (Sections 4–6) and the notebook config. I supplied
+   the numbers and the training settings; I reviewed every claim against the artifacts and
+   corrected the metrics when an earlier run's numbers were stale.
 
 ## Files
 
