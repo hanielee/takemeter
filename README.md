@@ -234,17 +234,21 @@ about the **collapse itself**, not a label pair:
 
 ### Sample classifications
 
-The fine-tuned model is a constant predictor, so every input below returns `arguments`.
+The fine-tuned model is a constant predictor — **every** input returns `arguments`.
 Confidences are the max-softmax probability.
 
-| Post (truncated) | True | Predicted | Confidence |
-|---|---|---|---|
-| "Most vegans are cannibals. If you look online they are the ones mostly obsessed…" | hot takes | arguments | _NEED_ |
-| "When servers lie — I've been to this ramen place a dozen times…" | experience | arguments | _NEED_ |
-| "Most of the fake meats are marketed toward meat eaters who want to be healthier…" | hot takes | arguments | _NEED_ |
+| Post (truncated) | True | Predicted | Confidence | ✓/✗ |
+|---|---|---|---|---|
+| "Did you know that eating more than 700 grams of red meat a week increases your risk of bowel cancer? …1.18× for every 50 grams…" | arguments | arguments | 0.39 | ✓ |
+| "I'm Korean and not vegan, but I'll expand your options for living vegan there. …it's called a temple restaurant…" | arguments | arguments | 0.38 | ✓ |
+| "Love The Taste Of Meat But I Hate Hurting Animals… I decided to go vegan!" | arguments | arguments | 0.37 | ✓ |
 
-_(NEED: paste the Section 4 confidence values. For a collapsed model I expect them clustered
-near the 0.33 three-class floor; the calibration section below is on hold until I have them.)_
+**Why a correct one is reasonable (with a caveat):** the red-meat post is predicted
+`arguments`, which is correct — it cites specific statistics (700 g/week; 1.18× risk per 50 g)
+and reasons to a health conclusion, exactly the `arguments` definition. **But the prediction
+is only trivially right:** the model outputs `arguments` for *every* post, so it also "predicts
+`arguments`" for all 22 hot-take/experience posts (which are therefore wrong). A correct
+prediction here is not evidence the model learned anything.
 
 ## Reflection: learned vs. intended
 
@@ -268,14 +272,29 @@ more about my data pipeline — **on a subjective task, label quality is the bin
 constraint**, and an automated scorer that leaves 39% of labels on a coin-flip can't teach a
 classifier a distinction I couldn't crisply operationalize.
 
-## Confidence Calibration (stretch — on hold)
+## Confidence Calibration (stretch)
 
-I planned to test whether higher-confidence predictions are more often correct. With the
-current collapsed model this is **pending the Section 4 confidence values** (see the NEED in
-Sample Classifications). For a constant classifier I expect all confidences clustered near
-the 0.33 three-class floor with little spread, which would mean confidence is uninformative —
-but I'll report the actual numbers rather than assume. _(This stretch is noted in
-[`planning.md`](planning.md).)_
+**Question:** do higher-confidence predictions get it right more often?
+**Answer: no — confidence here is uninformative, by construction.**
+
+Every max-softmax confidence on the test set sits in a razor-thin band just above the 0.33
+three-class floor. The 12 correct predictions (all true `arguments`) range **0.37–0.39**
+(mean ≈ 0.38), and since the model emits `arguments` for all 34 posts, the 22 errors are the
+*same* prediction from the *same* output node — there is no separate high-confidence regime
+to find. The single most confident prediction is **0.39**.
+
+Two consequences:
+
+1. **Confidence can't separate right from wrong.** Because the model predicts one class for
+   everything, P(correct | confidence) in any bin just equals the base rate of `arguments`
+   (12/34 ≈ 35%). A 0.39 prediction is no more trustworthy than a 0.37 one.
+2. **There is no usable threshold.** The "only act when confidence > 0.9" gate is empty — the
+   model never exceeds 0.39. Surfacing this score in a tool would be misleading; it would
+   always read ~0.38 regardless of input.
+
+**Why:** a constant classifier that barely escaped uniform output produces near-uniform
+softmax (≈0.33–0.39 across three classes). This is **not** a calibrated model — it's a
+degenerate one whose confidence carries no signal. _(Stretch noted in [`planning.md`](planning.md).)_
 
 ## Spec Reflection
 
