@@ -68,40 +68,88 @@ _(TODO: paste the exact prompt you used and note how results were collected — 
 
 ## Evaluation Report
 
-_(TODO — fill in from `evaluation_results.json` after running Colab Sections 4–6.)_
+Test set: **32 examples** (true distribution: argument 10, hot_take 7, experience 15).
+Full results in [`data/evaluation_results.json`](data/evaluation_results.json); confusion matrix image at [`data/confusion_matrix.png`](data/confusion_matrix.png).
+
+**Headline result: fine-tuning made the classifier *worse*.** The zero-shot Groq
+baseline beat the fine-tuned DistilBERT by ~19 points, and the fine-tuned model failed
+to learn the `hot_take` class entirely. This did **not** meet my definition of success
+(beat baseline AND macro F1 ≥ 0.70) — and the *why* is the most interesting part of the
+project.
 
 ### Overall accuracy
 
 | Model | Accuracy | Macro F1 |
 |---|---|---|
-| Zero-shot baseline (llama-3.3-70b) | TODO | TODO |
-| Fine-tuned DistilBERT | TODO | TODO |
+| Zero-shot baseline (llama-3.3-70b) | **0.969** (31/32) | _NEED: from notebook Section 5 output_ |
+| Fine-tuned DistilBERT | 0.781 (25/32) | **0.60** |
+
+Δ accuracy = **−0.188** (fine-tuned minus baseline).
 
 ### Per-class metrics (fine-tuned)
 
+Computed from the confusion matrix below.
+
 | Label | Precision | Recall | F1 |
 |---|---|---|---|
-| argument | TODO | TODO | TODO |
-| hot_take | TODO | TODO | TODO |
-| experience | TODO | TODO | TODO |
+| argument | 1.00 | 1.00 | 1.00 |
+| hot_take | 0.00 | 0.00 | **0.00** |
+| experience | 0.68 | 1.00 | 0.81 |
+
+`hot_take` F1 is exactly 0 — the model **never once predicted it**. This is the
+textbook "one class F1 ≈ 0, others fine" case: the model could not learn that boundary.
+
+_(Baseline per-class metrics: NEED — paste the precision/recall/F1 table the notebook
+printed in Section 5 so we can compare class-by-class, not just on accuracy.)_
 
 ### Confusion matrix (fine-tuned)
 
-Rows = true label, columns = predicted. (Supplementary image: `confusion_matrix.png`.)
+Rows = true label, columns = predicted. (Supplementary image: [`data/confusion_matrix.png`](data/confusion_matrix.png).)
 
 |  | pred argument | pred hot_take | pred experience |
 |---|---|---|---|
-| **true argument** | TODO | TODO | TODO |
-| **true hot_take** | TODO | TODO | TODO |
-| **true experience** | TODO | TODO | TODO |
+| **true argument** | 10 | 0 | 0 |
+| **true hot_take** | 0 | 0 | **7** |
+| **true experience** | 0 | 0 | 15 |
+
+The only off-diagonal mass is a single directional error: **every `hot_take` was
+predicted as `experience`.** `argument` is perfectly separated; `experience` catches
+everything that isn't `argument` (precision 0.68 because the 7 hot_takes leak in).
 
 ### Three wrong predictions, analyzed
 
-_(TODO: pick 3 misclassified test examples. For each: the text, true vs. predicted label, and WHY it failed — which boundary, why that boundary is hard, whether it's a labeling vs. data problem, and what would fix it.)_
+All 7 errors are the same failure: **true `hot_take` → predicted `experience`.** Below
+I analyze the pattern; I need the actual post texts from the notebook to name 3 specific
+ones (see "What I still need" at the bottom).
 
-1. …
-2. …
-3. …
+**The pattern.** The model effectively learned a 2-way rule, not a 3-way one:
+*"contains specific evidence/numbers → `argument`; otherwise → `experience`."* It never
+carved out `hot_take` at all.
+
+- **Which boundary failed:** `hot_take` vs. `experience`. Both are first-person,
+  emotional, and evidence-free on the surface — a confident "anyone who eats meat
+  doesn't care about the planet" shares vocabulary and tone with "I can't stop thinking
+  about that documentary." The thing that separates them (one is a *judgment/claim*, the
+  other is a *personal feeling*) is semantic and subtle, not lexical.
+- **Why it's hard:** `argument` has an easy surface signal (numbers, study references,
+  causal connectives), so the model locked onto it and got that class perfect. `hot_take`
+  has *no* reliable surface signal that distinguishes it from `experience` — so with
+  limited data the model folded it into the larger neighboring class.
+- **Labeling vs. data problem:** This looks like a **data/class-imbalance problem**, not
+  annotation inconsistency. `hot_take` is the minority class (only 7 in test), and with
+  ~150 training examples DistilBERT didn't see enough hot_takes to separate them from the
+  much larger `experience` class. The boundary itself may also be genuinely thin.
+- **What would fix it:** (1) more `hot_take` training examples, ideally hard ones that
+  look emotional but are claims; (2) class-weighted loss so the minority class isn't
+  swamped; (3) possibly merging `hot_take` and `experience` if the boundary turns out to
+  be too thin to learn — though that would abandon the distinction I set out to measure.
+
+> ⚠️ **The other red flag — the baseline is suspiciously high (96.9%).** The spec warns
+> that >95% accuracy on a subjective task suggests labels that are *too easy* or test
+> leakage. A 70B model nailing 31/32 while a fine-tune can't learn one class points the
+> same way: the examples may be too cleanly separable (e.g. if many were LLM-generated or
+> templated, each class reads "obvious"). Worth checking whether the dataset reflects
+> genuinely messy real r/vegan posts or polished, easy-to-classify ones. _(See reflection.)_
 
 ### Sample classifications
 
@@ -113,7 +161,26 @@ _(TODO: 3–5 posts run through the fine-tuned model with predicted label + conf
 
 ## Reflection: learned vs. intended
 
-_(TODO: higher-level than the wrong-prediction list. What did the model's decision boundary actually capture vs. what your definitions intended? What did it overfit to — e.g., did "experience" collapse to first-person pronouns, or "argument" to the presence of numbers? What did it miss?)_
+I intended a three-way distinction along *discourse quality*: reasoned **argument**,
+unsupported **hot take**, and personal **experience**. What the model actually learned
+was a two-way distinction along *surface form*: **"has evidence markers (numbers, studies,
+causal reasoning) vs. doesn't."** It mapped the first bucket to `argument` (perfectly —
+F1 1.00) and dumped everything else into `experience`, never instantiating `hot_take` as
+a real category.
+
+That gap is the whole point. My `argument` definition happened to align with an easy
+lexical signal, so the model captured it cleanly — arguably for the wrong reason (it may
+be keying on the *presence of numbers* rather than on whether a claim is actually
+reasoned). My `hot_take` definition — "a confident claim *without* evidence" — is defined
+by an *absence*, and absences don't give a small model anything to grab onto. To the
+model, a hot take and a personal vent are nearly the same object: first-person,
+evidence-free, emotionally charged. The distinction I cared about (judgment vs. feeling)
+lives in meaning, not wording, and ~150 examples weren't enough to teach it.
+
+So the model overfit to the easy signal (evidence → argument) and missed the subtle one
+(claim vs. feeling). Combined with the implausibly strong baseline, the honest read is
+that the *task* I posed is learnable by a large zero-shot model but my *dataset* — small,
+hot_take-poor, and possibly too clean — couldn't teach it to a small one.
 
 ## Spec Reflection
 
@@ -130,5 +197,5 @@ _(TODO: at least 2 specific instances — what you directed the AI to do, what i
 
 - [`planning.md`](planning.md) — design thinking, label definitions, edge-case rules, AI tool plan.
 - [`data/`](data/) — labeled dataset CSV.
-- `evaluation_results.json` — metrics export from Colab _(commit after running)_.
-- `confusion_matrix.png` — confusion matrix image from Colab _(commit after running)_.
+- [`data/evaluation_results.json`](data/evaluation_results.json) — metrics export from Colab.
+- [`data/confusion_matrix.png`](data/confusion_matrix.png) — confusion matrix image from Colab.
