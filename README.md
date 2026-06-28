@@ -8,6 +8,11 @@ zero-shot `llama-3.3-70b-versatile` baseline on the same held-out test set.
 > Design notes, edge-case decision rules, and the AI tool plan live in
 > [`planning.md`](planning.md). This README is the final report and stands on its own.
 
+> **Label strings.** In the dataset and trained model the labels are stored as
+> `arguments`, `hot takes`, and `experience`. This README uses those exact strings in the
+> metrics tables (to match the artifacts) and the natural forms ("argument", "hot take")
+> in prose.
+
 ## Community
 
 I chose **r/vegan** because its discourse is active, text-heavy, and varies enormously
@@ -22,74 +27,80 @@ Three mutually exclusive labels:
 
 | Label | Definition | Example |
 |---|---|---|
-| **argument** | A structured case for/against a position (ethical, environmental, health) backed by specific, verifiable reasoning that could stand on its own without the opinion framing. | "Animal agriculture is ~14.5% of human-caused GHG emissions, and beef needs ~20x the land per gram of protein vs. legumes, so cutting it has an outsized effect." |
-| **hot_take** | A bold, confident opinion or moral judgment with little supporting evidence, or evidence that is rhetorical/cherry-picked rather than part of a real argument. | "Anyone who still eats meat in 2026 just doesn't care about the planet, full stop." |
+| **arguments** | A structured case for/against a position (ethical, environmental, health) backed by specific, verifiable reasoning that could stand on its own without the opinion framing. | "Animal agriculture is ~14.5% of human-caused GHG emissions, and beef needs ~20x the land per gram of protein vs. legumes, so cutting it has an outsized effect." |
+| **hot takes** | A bold, confident opinion or moral judgment with little supporting evidence, or evidence that is rhetorical/cherry-picked rather than part of a real argument. | "Anyone who still eats meat in 2026 just doesn't care about the planet, full stop." |
 | **experience** | A personal story, emotional expression, or request for support/advice — someone's own vegan journey, family struggles, venting — with little to no general argument. | "Three months in and my parents still leave meat on my plate. How do you all deal with family who won't take it seriously?" |
 
 Second example per label and full definitions: see [`planning.md`](planning.md).
 
 ## Data Collection & Labeling
 
-- **Source:** posts and comments reflecting r/vegan discourse. _(⚠️ TODO — the spec requires **real, public** r/vegan posts; document exactly where these came from. See the note at the end of this section.)_
-- **Labeling process:** each example labeled against the definitions in `planning.md`, with a free-text `notes` column recording the rationale and any borderline judgment. _(TODO: disclose any LLM assistance in the AI Usage section.)_
-- **Dataset file:** [`data/takemeter_rvegan_labeled_examples.csv`](data/takemeter_rvegan_labeled_examples.csv) — single file, columns `text,label,notes`. The Colab notebook does the 70/15/15 train/val/test split automatically.
+- **Source:** **223 real public posts and comments collected from r/vegan** (full posts and
+  reply comments — the long, first-person, typo-bearing kind you actually find on the
+  subreddit). No synthetic or authored examples.
+- **Labeling process:** each example carries a `notes` field with a per-label **score tally**
+  (`scores={'arguments':N,'hot_takes':N,'experience':N}`); the final `label` is the
+  argmax. This means labels were assigned with **automated scoring assistance**, which I
+  disclose in [AI Usage](#ai-usage). Label noise from this process is non-trivial (see below)
+  and is relevant to the results.
+- **Dataset file:** [`data/takemeter_labeled_rvegan.csv`](data/takemeter_labeled_rvegan.csv) — single file, columns `text,label,notes`. The Colab notebook does the 70/15/15 train/val/test split automatically.
 
-### Label distribution (208 examples)
+### Label distribution (223 examples)
 
 | Label | Count | Share |
 |---|---|---|
-| experience | 100 | 48.1% |
-| argument | 65 | 31.2% |
-| hot_take | 43 | 20.7% |
+| arguments | 75 | 33.6% |
+| hot takes | 75 | 33.6% |
+| experience | 73 | 32.7% |
 
-No label exceeds 70% ✓. But `hot_take` is the minority class (20.7%), and `experience` is nearly half — an imbalance that turns out to predict the model's failure exactly (see Evaluation).
+**Near-perfectly balanced** — no label above 34%. So whatever goes wrong downstream is
+*not* a class-imbalance artifact.
+
+### Label-noise caveat
+
+**87 of 223 examples (39%) are ambiguous** by the scoring system's own output — the top two
+label scores are within 2 points of each other. On a subjective task that's expected, but it
+means a large minority of training labels rest on a near-tie, which limits how clean a signal
+any model can learn (the spec flags "labels inconsistent" as a cause of low, flat
+performance — see Evaluation).
 
 ### Three difficult-to-label examples
 
-These are real boundary cases from the dataset (rationale captured in the `notes` column), resolved with the decision rules in [`planning.md`](planning.md).
+Real boundary cases from the dataset, resolved with the decision rules in [`planning.md`](planning.md). Each shows the scoring system's split.
 
-1. **"If your ethics only apply to animals that are cute, that's not ethics — that's aesthetics."** — has a genuine logical kernel (a consistency point) but is delivered as a one-line jab with no argument built around it. → **hot_take**, by the rule "evidence/logic that is decorative rather than developed into a case → hot_take."
-2. **"Dairy cows are kept perpetually pregnant and their calves are taken away. If that happened to a human it would be called torture. Why does species make a difference?"** — the factual claims are accurate, which pulls toward `argument`, but a rhetorical question is doing the work of the conclusion and no actual case is made. → **hot_take** (the hardest case in the set).
-3. **"Doctors get almost no nutrition training in medical school… Get your bloodwork done and find a doctor who knows the research."** — the "doctors get no nutrition training" claim edges toward `argument`, but the post is framed as personal advice from the author's own experience. → **experience**, by the rule "if the post is primarily about the author's own situation and the reasoning is incidental, label Experience."
-
-> 📝 **Data-source note.** The dataset is a mix of genuinely collected r/vegan posts
-> (long, first-person, messy, typo-bearing — e.g. the Voodoo Donuts story, the lost-period
-> health post, the "Feather Foam" mix-up) and shorter, cleaner exemplar posts. **Document
-> this honestly in the data-source line above and in AI Usage:** state which examples were
-> collected from r/vegan vs. authored/generated to illustrate a class, and disclose any LLM
-> help. The cleaner exemplars are part of why the baseline is so high — see the evaluation.
+1. **"Horse shit. Cancer has existed for all of human history. It was named by Hippocrates because he thought a tumour looked like a crab…"** — `scores={arguments:4, hot_takes:2}`. Opens with hostility (reads like a `hot take`) but contains a verifiable historical/factual claim that stands on its own. → **arguments**, by the rule "if specific evidence would support the claim with the opinion framing removed, label argument."
+2. **"My advice is 1) Watch Dominion; 2) Read Melanie Joy's *Why We Love Dogs…*; 3) Talk to a nutritionist."** — `scores={arguments:4, hot_takes:2}`. Sits between `arguments` (a reasoned recommendation) and `experience` (personal advice). → **arguments**, because the recommendation is justified rather than just personal.
+3. **"What do I do with non-vegan food my caretaker bought specifically for me because he thought it was vegan?"** — `scores={arguments:4, hot_takes:4, experience:8}` (a genuine three-way split). Raises an ethical question but is fundamentally a personal, practical request for help. → **experience**, by the rule "if the post is primarily about the author's own situation, label experience."
 
 ## Fine-Tuning Approach
 
 - **Base model:** `distilbert-base-uncased` (HuggingFace), with a sequence-classification head (3 output labels).
 - **Platform:** Google Colab, free **T4 GPU**, via the HuggingFace `Trainer`.
-- **Data:** 70/15/15 train/val/test, **stratified** by label (`random_state=42`) so each split keeps the 48/31/21 distribution. Text truncated to 256 tokens.
+- **Data:** 70/15/15 train/val/test, **stratified** by label (`random_state=42`) — ~156 train / ~33 val / **34 test**, each split keeping the balanced ~33/33/33 distribution. Text truncated to 256 tokens.
 - **Settings used:** 3 epochs, learning rate 2e-5, batch size 16, weight decay 0.01, 50 warmup steps, `load_best_model_at_end` on validation **accuracy**.
 
 ### Key training decision (and what it revealed)
 
-I kept the standard BERT fine-tuning regime — **LR 2e-5, 3 epochs, batch 16** — and the
-reasoning is dataset-size-driven: with only ~145 training examples, a higher learning rate
-or more epochs would overfit the two majority classes long before helping the model
-generalize. That choice is sound, and the result confirms it for `argument`/`experience`
-(perfect recall, no sign of instability).
+I kept the standard BERT fine-tuning regime — **LR 2e-5, 3 epochs, batch 16** — on the
+reasoning that for ~156 examples a higher LR or more epochs risks overfitting. **On this
+dataset that decision backfired in a specific, diagnosable way:** the model **collapsed to a
+constant classifier**, predicting `arguments` for all 34 test posts (see the confusion
+matrix). On balanced data that yields ≈ the majority share — exactly the 35% it scored.
 
-The more important decision is one the default config made *against* my minority class, and
-it explains the `hot_take` F1 = 0 result better than any learning-rate tweak would:
+The important insight is *why* no hyperparameter would have saved it as-is:
 
-1. **No class weighting.** The loss treats every example equally, so the 43 `hot_take`
-   examples (20.7%) are swamped by the 165 argument+experience examples. The cheapest way
-   for the model to cut loss is to never predict the minority class — which is exactly what
-   it did.
-2. **`metric_for_best_model="accuracy"`.** Because checkpoints are selected on raw
-   validation *accuracy* over an imbalanced split, the selection criterion **rewards
-   predicting the majority** — a model that ignores `hot_take` entirely can still post high
-   accuracy. Selecting on **macro-F1** instead would have penalized the dead class.
+1. **The training signal is too weak to beat the trivial solution.** With a genuinely
+   subjective 3-way distinction, ~156 examples, and **39% of labels on a near-tie**, gradient
+   descent found it cheaper to park at "always predict class 0" than to learn a boundary.
+   Three epochs at 2e-5 never moved it off that trivial minimum.
+2. **Label noise caps the ceiling.** Class weighting won't help (the data is already
+   balanced); the bottleneck is label *consistency*, not balance.
 
-**What I would change:** add class-weighted cross-entropy (or oversample `hot_take`) and
-switch model selection to macro-F1. I'm noting this as the diagnosis rather than re-running
-it, because it pinpoints the failure as a **data-balance/training-objective** problem, not a
-learning-rate problem — which is the more useful thing to have learned.
+**What I would change:** first **clean the labels** (resolve or drop the 39% near-tie rows),
+then re-run with **more epochs (8–12) and a higher LR (3e-5–5e-5)** while watching the
+validation learning curve for the moment it escapes the constant-prediction regime. The
+honest lesson is that on noisy, subjective labels the data work matters more than the
+hyperparameters.
 
 ## Baseline
 
@@ -97,11 +108,18 @@ Zero-shot `llama-3.3-70b-versatile` via the Groq API, classifying each test exam
 task-specific training. Each post was sent in its own request with `temperature=0` and
 `max_tokens=20`; the system prompt carried the three label definitions verbatim (plus the
 two edge-case decision rules) and instructed the model to **output only the label name**.
-The returned string was matched against the label set (longest-label-first to avoid
-substring collisions); unmatched responses count as unparseable. All **32/32** test
-responses parsed cleanly, so no examples were dropped.
 
-**System prompt used:**
+> ⚠️ **Known issue — label-string mismatch (re-run before trusting the baseline).** The
+> prompt below tells the model to output `argument` / `hot_take` / `experience`, but the
+> dataset labels are `arguments` / `hot takes` / `experience`. The parser matches model
+> output against the *dataset* strings, so a reply of "argument" or "hot_take" fails to match
+> and is dropped as **unparseable** — only "experience" parses cleanly. The reported baseline
+> accuracy (0.556) is therefore computed on a **reduced, biased subset**, not all 34 test
+> posts, and is **not yet a valid comparison.** Fix: change the prompt to output the exact
+> strings `arguments` / `hot takes` / `experience` (or normalize in `classify_with_groq`),
+> re-run Section 5, and paste the new output (accuracy + per-class + parseable count).
+
+**System prompt used (as run — note the label names need the fix above):**
 
 ```
 You are classifying posts from r/vegan.
@@ -140,228 +158,168 @@ hot_take
 experience
 ```
 
-Notably, the baseline got a **perfect 32/32 with this exact prompt** — including all 7
-`hot_take`s that the fine-tuned model missed. The same label definitions that DistilBERT
-couldn't learn from 145 examples are trivially applied by a 70B model reading them
-zero-shot, which is the core finding of the comparison.
-
 ## Evaluation Report
 
-Test set: **32 examples** (true distribution: argument 10, hot_take 7, experience 15).
-Full results in [`data/evaluation_results.json`](data/evaluation_results.json); confusion matrix image at [`data/confusion_matrix.png`](data/confusion_matrix.png).
+Test set: **34 examples** (true distribution: arguments 12, hot takes 11, experience 11).
+Metrics in [`data/evaluation_results.json`](data/evaluation_results.json); confusion matrix
+image at [`data/confusion_matrix.png`](data/confusion_matrix.png).
 
-**Headline result: fine-tuning made the classifier *worse*.** The zero-shot Groq
-baseline scored a **perfect 100%**; the fine-tuned DistilBERT managed 78.1% and **never
-once predicted `hot_take`**. This did **not** meet my definition of success (beat baseline
-AND macro F1 ≥ 0.70) — it missed on both counts — and the *why* is the most interesting
-part of the project.
+**Headline result: the fine-tuned model collapsed to a single class.** It predicted
+`arguments` for **every** test post, scoring **35.3%** — essentially the trivial
+"always-guess-the-plurality" baseline. The zero-shot LLM scored 55.6% (with the caveat
+above), so fine-tuning **regressed** the classifier. This misses my definition of success
+(beat the baseline AND macro F1 ≥ 0.70) on every count, and the *why* — a hard subjective
+task plus noisy labels — is the finding.
 
 ### Overall accuracy
 
 | Model | Accuracy | Macro F1 |
 |---|---|---|
-| Zero-shot baseline (llama-3.3-70b) | **1.000** (32/32) | **1.00** |
-| Fine-tuned DistilBERT | 0.781 (25/32) | 0.58 |
+| Zero-shot baseline (llama-3.3-70b) | 0.556 ⚠️ (biased subset — see label-mismatch note) | _NEED: re-run Section 5_ |
+| Fine-tuned DistilBERT | **0.353** (12/34) | **0.17** |
 
-Δ accuracy = **−0.219** (fine-tuned minus baseline).
+Δ accuracy ≈ **−0.20** (fine-tuned minus baseline), though the baseline number is not yet
+trustworthy until Section 5 is re-run.
 
-### Per-class metrics
+### Per-class metrics (fine-tuned)
 
-**Fine-tuned DistilBERT:**
+Computed from the confusion matrix below.
 
 | Label | Precision | Recall | F1 | Support |
 |---|---|---|---|---|
-| argument | 0.71 | 1.00 | 0.83 | 10 |
-| hot_take | 0.00 | 0.00 | **0.00** | 7 |
-| experience | 0.83 | 1.00 | 0.91 | 15 |
-| **macro avg** | 0.52 | 0.67 | 0.58 | 32 |
+| arguments | 0.35 | 1.00 | 0.52 | 12 |
+| hot takes | 0.00 | 0.00 | **0.00** | 11 |
+| experience | 0.00 | 0.00 | **0.00** | 11 |
+| **macro avg** | 0.12 | 0.33 | **0.17** | 34 |
 
-`hot_take` F1 is exactly 0 — the model **never once predicted it**. This is the textbook
-"one class F1 ≈ 0, others fine" case: the model could not learn that boundary.
+Two of three classes have F1 = 0 because the model **never predicted them**. `arguments`
+gets recall 1.00 only because the model predicts it for everything; its precision (0.35) is
+just the class's share of the test set.
 
-**Baseline (llama-3.3-70b):** precision/recall/F1 = **1.00 across all three classes**
-(argument, hot_take, experience) — a perfect confusion matrix.
+**Baseline per-class:** _NEED — re-run Section 5 (with the label-name fix) and paste the
+`classification_report` so the comparison is class-by-class, not just accuracy._
 
 ### Confusion matrix (fine-tuned)
 
-Rows = true label, columns = predicted. (Supplementary image: [`data/confusion_matrix.png`](data/confusion_matrix.png).)
+Rows = true label, columns = predicted. (Image: [`data/confusion_matrix.png`](data/confusion_matrix.png).)
 
-|  | pred argument | pred hot_take | pred experience |
+|  | pred arguments | pred hot takes | pred experience |
 |---|---|---|---|
-| **true argument** | 10 | 0 | 0 |
-| **true hot_take** | **4** | 0 | **3** |
-| **true experience** | 0 | 0 | 15 |
+| **true arguments** | 12 | 0 | 0 |
+| **true hot takes** | 11 | 0 | 0 |
+| **true experience** | 11 | 0 | 0 |
 
-Every error is a `hot_take`, and the model has **no `hot_take` column at all** — it splits
-the 7 hot_takes between `argument` (4) and `experience` (3). `argument` and `experience`
-are otherwise perfectly recalled; their precision drops (0.71 / 0.83) only because the
-stray hot_takes leak in.
+The matrix has a **single populated column** — the signature of a degenerate, constant
+classifier. There is no boundary to analyze *between* classes because the model drew none.
 
 ### Three wrong predictions, analyzed
 
-All 7 errors are true `hot_take`s. The revealing part is *which way* each one breaks:
+Because the model predicts `arguments` for everything, **all 22 non-argument test posts are
+errors**. Three real ones (all true label ≠ `arguments`, all predicted `arguments`):
 
-1. **"The egg industry is built on gassing or grinding male chicks alive… That's the product you're buying when you buy eggs."**
-   True `hot_take` → **predicted `argument`** (confidence 0.36). The post drops real factual nouns (the chick-culling practice), so the model's "contains facts → argument" heuristic fires. But I labeled it `hot_take` because the fact is delivered as a conclusion-by-shock, with no reasoning built around it. **Boundary: argument vs. hot_take** — the model can't tell *citing* a fact from *reasoning* with one.
-2. **"Anyone still eating meat in 2026 is choosing ignorance. The information has been out there for decades."**
-   True `hot_take` → **predicted `argument`** (0.34). The appeal-to-evidence phrasing ("the information has been out there") mimics the *surface form* of an argument without making one. Same boundary, same cause.
-3. **"Hunters are just murderers with a hunting license. Dress it up however you want."**
-   True `hot_take` → **predicted `experience`** (0.36). No facts, pure emotional assertion — so it falls to the model's "no evidence → experience" default. **Boundary: hot_take vs. experience.**
+1. **"Most vegans are cannibals. If you look online they are the ones mostly obsessed with cannibalism…"** — true **hot takes** → predicted **arguments**. A pure provocative assertion with no reasoning; the model has no `hot takes` region to put it in.
+2. **"When servers lie — I've been to this ramen place a dozen times… in their defense the vegan option is…"** — true **experience** → predicted **arguments**. A first-person anecdote; again routed to the only class the model emits.
+3. **"This is the answer! French fries and ice cream can be vegan if you're into that. My weight has fluctuated by 100 lbs in 20 years…"** — true **experience** → predicted **arguments**. Personal, conversational reply, predicted `arguments` like everything else.
 
-**The pattern.** The model learned a 2-way rule, not a 3-way one: *"factual/evidence-style
-language → `argument`; emotional, evidence-free language → `experience`."* `hot_take` —
-**a confident claim delivered with feeling but no real reasoning** — straddles both, so it
-has no home: the fact-flavored hot_takes get pulled to `argument`, the pure-assertion ones
-to `experience`.
+**The pattern is the absence of a pattern.** Unlike a model that confuses two *specific*
+boundaries, this one made the same prediction regardless of input — so the error analysis is
+about the **collapse itself**, not a label pair:
 
-- **Why it's hard:** `hot_take` is defined by what it *lacks* (developed reasoning), not by
-  any positive surface signal. `argument` (numbers, studies, causal connectives) and
-  `experience` (first-person, narrative) each have one; `hot_take` doesn't.
-- **Labeling vs. data problem:** **class imbalance**, not annotation noise. `hot_take` is
-  the minority class (20.7% overall, only 7 in test); with ~145 training examples, DistilBERT
-  never saw enough to carve out a region for it.
-- **Confidence tell:** every wrong prediction sits at **0.34–0.36** — barely above the 0.33
-  chance floor for three classes. But so do the *correct* ones (0.36–0.39), so this isn't a
-  useful "error detector" — the model is **globally underconfident**, not specifically
-  unsure on hot_takes (see the Confidence Calibration section).
-- **What would fix it:** more (and harder) `hot_take` examples; class-weighted loss; or
-  accepting the boundary is thin and merging classes — though that abandons the distinction
-  I set out to measure.
-
-> ⚠️ **The other red flag — the baseline is *perfect* (100%).** The spec warns that >95%
-> accuracy on a subjective task suggests labels that are *too easy* or test leakage. A 70B
-> model getting 32/32 while a small fine-tune can't learn one class points the same way: the
-> 3-way distinction is easy for a large model to read zero-shot, but hard to *learn* from 208
-> imbalanced examples. Worth confirming there's no train/test overlap and that the harder,
-> messier real posts (not just the clean exemplars) are well represented in `hot_take`.
+- **Which boundary failed:** all of them. The model learned no separating signal whatsoever.
+- **Why it's hard:** the distinction is *semantic* (is the reasoning actually developed?),
+  has weak surface correlates, and **39% of the training labels are near-ties** — so the
+  "true" signal is both subtle and noisy. A small model defaults to the constant minimum.
+- **Labeling vs. data problem:** primarily a **label-consistency / task-difficulty** problem,
+  not imbalance (the data is balanced) and not a single confusable pair.
+- **What would fix it:** clean the ambiguous labels, then train longer at a higher LR (see
+  Fine-Tuning Approach). Until the labels are consistent, no hyperparameter will help.
 
 ### Sample classifications
 
-Run through the fine-tuned model (confidences are the max softmax probability). The first
-two are correct, the last two are wrong — note all four confidences land in the same narrow
-0.36–0.38 band.
+The fine-tuned model is a constant predictor, so every input below returns `arguments`.
+Confidences are the max-softmax probability.
 
-| Post (truncated) | True | Predicted | Confidence | ✓/✗ |
-|---|---|---|---|---|
-| "Free-range labeling in the US allows as little as two square feet per bird… the label does not mean what most consumers imagine." | argument | argument | 0.37 | ✓ |
-| "I used to eat steak three times a week. I now eat zero steaks a week. I miss it sometimes but not as much as I expected to." | experience | experience | 0.37 | ✓ |
-| "The egg industry is built on gassing or grinding male chicks alive…" | hot_take | argument | 0.36 | ✗ |
-| "Hunters are just murderers with a hunting license. Dress it up however you want." | hot_take | experience | 0.36 | ✗ |
+| Post (truncated) | True | Predicted | Confidence |
+|---|---|---|---|
+| "Most vegans are cannibals. If you look online they are the ones mostly obsessed…" | hot takes | arguments | _NEED_ |
+| "When servers lie — I've been to this ramen place a dozen times…" | experience | arguments | _NEED_ |
+| "Most of the fake meats are marketed toward meat eaters who want to be healthier…" | hot takes | arguments | _NEED_ |
 
-**Why a correct one is reasonable:** the free-range-labeling post is predicted `argument`
-because it does exactly what the `argument` label describes — a specific, verifiable claim
-(two square feet per bird; the regulatory standard) used to reason that the label misleads
-consumers. That's the one distinction the model learned cleanly. The telling detail is that
-even this clean correct case is only **0.37** confident — the model picks the right class
-but with almost no margin, which is the subject of the next section.
+_(NEED: paste the Section 4 confidence values. For a collapsed model I expect them clustered
+near the 0.33 three-class floor; the calibration section below is on hold until I have them.)_
 
 ## Reflection: learned vs. intended
 
-I intended a three-way distinction along *discourse quality*: reasoned **argument**,
-unsupported **hot take**, and personal **experience**. What the model actually learned was
-a two-way split along *surface form*: **"factual/evidence-style language → argument;
-emotional, first-person, evidence-free language → experience."** `hot_take` was never
-instantiated as its own category — its 7 test cases were routed to whichever of the two
-learned classes their surface features resembled (4 to `argument`, 3 to `experience`).
+I intended a three-way distinction along *discourse quality* — reasoned **argument**,
+unsupported **hot take**, personal **experience**. The fine-tuned model learned **none of
+it**: it became a constant function that outputs `arguments` for any input. The gap between
+intended and learned is therefore total, and that is itself the most honest finding.
 
-That gap is the whole point. `argument` and `experience` each align with an easy positive
-signal — numbers/causal connectives for one, first-person narrative for the other — so the
-model captured them with perfect recall (arguably for the wrong reason: `argument` may be
-keying on the *presence of facts* rather than on whether a claim is actually *reasoned*,
-which is exactly why the fact-flavored hot_takes fooled it). My `hot_take` definition — "a
-confident claim *delivered without real reasoning*" — is defined by an *absence*, and an
-absence gives a small model nothing positive to grab onto. The distinction I cared about
-(asserting vs. arguing, judgment vs. feeling) lives in meaning, not wording, and ~145
-training examples of a 20%-minority class weren't enough to teach it. The model didn't
-learn "take quality"; it learned "does this text look like prose-with-numbers or
-prose-with-feelings."
+Two things explain it. First, the quality distinction I care about lives in *meaning*, not
+*wording* — a real argument and a real hot take cite the same topics in the same vocabulary;
+the difference is whether the reasoning is actually developed. That semantic signal has weak
+surface correlates for a small model to latch onto. Second, the labels are noisy: by the
+scoring system's own tallies, **39% of examples are near-ties**, so even the "ground truth"
+is internally inconsistent. Faced with a subtle signal and noisy targets across only ~156
+examples, DistilBERT did the mathematically cheap thing and collapsed to one class.
 
-So the model overfit to the easy signal (evidence → argument) and missed the subtle one
-(claim vs. feeling). Combined with the implausibly strong baseline, the honest read is
-that the *task* I posed is learnable by a large zero-shot model but my *dataset* — small,
-hot_take-poor, and possibly too clean — couldn't teach it to a small one.
+The contrast with the baseline is the lesson: a 70B model can *read the definitions* and
+apply judgment zero-shot (above chance even on the biased subset), but a small model cannot
+*induce* that judgment from 156 noisy examples. What I learned is less about the model and
+more about my data pipeline — **on a subjective task, label quality is the binding
+constraint**, and an automated scorer that leaves 39% of labels on a coin-flip can't teach a
+classifier a distinction I couldn't crisply operationalize.
 
-## Confidence Calibration (stretch)
+## Confidence Calibration (stretch — on hold)
 
-**Question:** does a more-confident prediction get it right more often?
-**Answer: barely — because the model is never actually confident.** Across the whole test
-set, the max-softmax confidence lives in a tiny band just above the 0.33 chance floor for
-three classes:
-
-| Group | Confidence range | Mean |
-|---|---|---|
-| Correct predictions (25/32) | 0.36 – 0.39 | ≈ 0.37 |
-| Wrong predictions (7/32) | 0.34 – 0.36 | ≈ 0.35 |
-
-Two things follow:
-
-1. **There is a faint, correctly-directed signal.** Correct predictions average ~0.37 vs.
-   ~0.35 for errors — so higher confidence *does* track higher accuracy, slightly. But the
-   ranges overlap almost completely (0.36 shows up in both), so confidence can't reliably
-   separate right from wrong on any single example.
-2. **The model has no high-confidence regime at all.** The single most confident prediction
-   in the entire test set is **0.39**. The classic calibration question — "is a 90%-confident
-   prediction more reliable than a 60% one?" — is unanswerable here because the model never
-   emits 90% *or even 50%*. Its probabilities are compressed near uniform: it usually ranks
-   the correct class first (hence perfect recall on argument/experience) but with almost no
-   margin over the runner-up.
-
-**Why:** short training (3 epochs), a small dataset, and weight decay leave the decision
-boundaries weak/low-margin, so softmax mass stays spread across classes. **Implication for a
-real tool:** the confidence score is not safe to surface to users (it would always read
-~37%) and can't gate auto-actions (the ">0.9, auto-accept" bucket is empty). A deployment
-would need post-hoc calibration (temperature scaling) or should simply not display
-confidence. This is **not** a well-calibrated classifier; it's a low-margin one.
+I planned to test whether higher-confidence predictions are more often correct. With the
+current collapsed model this is **pending the Section 4 confidence values** (see the NEED in
+Sample Classifications). For a constant classifier I expect all confidences clustered near
+the 0.33 three-class floor with little spread, which would mean confidence is uninformative —
+but I'll report the actual numbers rather than assume. _(This stretch is noted in
+[`planning.md`](planning.md).)_
 
 ## Spec Reflection
 
 **One way the spec helped.** The spec forced me to write precise label *definitions with
-explicit decision rules* (the "fact-as-jab → hot_take" and "story+argument → argument"
-rules in `planning.md`) **before** annotating, and to commit to a success threshold
-(macro F1 ≥ 0.70) before seeing any results. That up-front rigor paid off twice: the
-decision rules made the hardest annotations (e.g. the "egg industry / male chicks" post)
-resolvable instead of arbitrary, and the pre-committed threshold meant my evaluation is an
-honest pass/fail against a bar I set in advance — not a number I rationalized after the
-fact. The model *failed* that bar (macro F1 0.58, lost to the baseline), and because the
-bar was fixed beforehand, that failure is a clean finding rather than a moved goalpost.
+explicit decision rules* and to commit to a success threshold (macro F1 ≥ 0.70) **before**
+seeing results. That up-front bar made the outcome an honest, unambiguous fail (macro F1
+0.17) rather than a number I could rationalize after the fact — and pointed me straight at
+the label-quality problem instead of letting me declare partial success.
 
-**One way the implementation diverged.** I implicitly expected fine-tuning to *beat* the
-zero-shot baseline — the whole framing of "fine-tune a classifier" assumes the fine-tune is
-the better model. It wasn't: the baseline scored a perfect 100% and fine-tuning *regressed*
-to 78%. So the project diverged from "show the fine-tuned model works" to "diagnose why it
-doesn't," and the center of gravity moved from the training pipeline to the error analysis
-(the `hot_take` class collapse and its root cause in class imbalance + an accuracy-based
-checkpoint criterion). The spec actually anticipates this — it explicitly says a fine-tune
-losing to the baseline is "a signal worth investigating" — so the divergence was in my
-expectation, not in what the spec allowed for.
+**One way the implementation diverged.** I expected fine-tuning to *beat* the zero-shot
+baseline — the whole framing of "fine-tune a classifier" assumes the fine-tune wins. Instead
+it collapsed to a constant predictor and lost badly. So the project pivoted from "show the
+fine-tuned model works" to "diagnose why it learned nothing," and the center of gravity moved
+from the training pipeline to the **data**: label noise (39% near-ties) and an inherently
+subjective target. The spec anticipates this — it explicitly says a fine-tune losing to the
+baseline is "a signal worth investigating," and that suspiciously flat per-class scores point
+to inconsistent labels — so the divergence was in my expectation, not in what the spec
+allowed for.
 
 ## AI Usage
 
-> _Draft reflecting the AI assistance used on this project — confirm/adjust to match what
-> you actually did, especially the dataset-disclosure item._
+> _Confirm/adjust to match exactly what you did._
 
-1. **Dataset construction / label illustration (annotation disclosure).** I used an LLM to
-   help **author and refine example posts** that cleanly illustrate each label's boundary
-   (the short, polished exemplars), alongside posts **collected directly from r/vegan** (the
-   long, messy, first-person ones). Every example was reviewed and labeled by me against the
-   `planning.md` definitions; I overrode the AI on borderline cases — e.g. I relabeled
-   fact-citing-but-unreasoned posts ("Milk causes cancer. Look it up.") from `argument` to
-   `hot_take` per my decision rule. _(⚠️ State here exactly which rows were collected vs.
-   AI-assisted, so the data source is transparent.)_
-2. **Error-pattern analysis.** I gave the AI the 7 misclassified test posts and asked it to
-   find a systematic pattern. It proposed that the model routes by *surface form* — fact-
-   flavored text → `argument`, emotional text → `experience` — leaving `hot_take` with no
-   region of its own. I verified this against the actual predictions (4 hot_takes went to
-   `argument`, 3 to `experience`, matching the split) before writing it up, and I added the
-   near-chance-confidence observation (0.34–0.36) myself from the Section 4 output.
-3. **Documentation drafting.** I directed the AI to draft the README evaluation tables and
-   reflection from my Colab cell outputs (Sections 4–6) and the notebook config. I supplied
-   the numbers and the training settings; I reviewed every claim against the artifacts and
-   corrected the metrics when an earlier run's numbers were stale.
+1. **Label assignment (annotation disclosure).** The dataset labels were produced with an
+   **automated scoring system** — each row's `notes` field records a per-label score tally
+   (`scores={'arguments':N,'hot_takes':N,'experience':N}`) and the final `label` is the
+   argmax. The post *text* is 100% real, collected from r/vegan; the *labels* are
+   AI-/script-assisted. I reviewed the labels against my `planning.md` definitions, and the
+   39% near-tie rate this process produced is reported transparently as a limitation.
+2. **Error-pattern analysis.** I gave the misclassified results and the confusion matrix to
+   an AI tool and asked it to identify the failure mode. It identified the **single-class
+   collapse** (one populated confusion-matrix column) and tied it to label noise + task
+   difficulty rather than to a confusable label pair. I verified this against the matrix
+   (every prediction is `arguments`) before writing it up.
+3. **Documentation drafting.** I directed an AI tool to draft the README evaluation tables
+   and reflection from my Colab artifacts (`evaluation_results.json`, `confusion_matrix.png`)
+   and notebook config. I supplied the files; every metric was recomputed from the artifacts,
+   and stale numbers from an earlier run were corrected.
 
 ## Files
 
 - [`planning.md`](planning.md) — design thinking, label definitions, edge-case rules, AI tool plan.
-- [`data/`](data/) — labeled dataset CSV.
+- [`data/takemeter_labeled_rvegan.csv`](data/takemeter_labeled_rvegan.csv) — 223 labeled r/vegan posts (`text,label,notes`).
 - [`data/evaluation_results.json`](data/evaluation_results.json) — metrics export from Colab.
 - [`data/confusion_matrix.png`](data/confusion_matrix.png) — confusion matrix image from Colab.
