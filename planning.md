@@ -50,3 +50,7 @@ The classifier will be considered useful if it meaningfully outperforms the zero
 - Label stress-testing: I will ask an AI tool to generate boundary-case posts using my label definitions and then check whether those examples are hard to classify. If the generated examples expose unclear boundaries, I will revise the definitions before annotation.
 - Annotation assistance: I may use an AI tool to pre-label a small batch of posts, but I will review every label myself and correct anything that does not match my definitions.
 - Failure analysis: After the model makes mistakes, I will give the misclassified examples to an AI tool and ask it to look for patterns such as sarcasm, short posts, or ambiguous wording. I will verify any pattern by reading the examples myself before including it in the final report.
+
+## Stretch Features
+
+- Confidence calibration (started after the main evaluation): I will check whether the fine-tuned model's softmax confidence is meaningful — specifically, whether correctly-predicted test examples carry higher confidence than incorrectly-predicted ones, and whether the model ever produces a genuinely high-confidence prediction. I will report the confidence ranges for correct vs. wrong predictions and interpret what they mean for using the model as a deployable tool.

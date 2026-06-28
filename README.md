@@ -221,8 +221,9 @@ to `experience`.
   the minority class (20.7% overall, only 7 in test); with ~145 training examples, DistilBERT
   never saw enough to carve out a region for it.
 - **Confidence tell:** every wrong prediction sits at **0.34–0.36** — barely above the 0.33
-  chance floor for three classes. The model isn't confidently wrong on hot_takes; it's
-  maximally *uncertain*, which is itself a usable calibration signal (see stretch ideas).
+  chance floor for three classes. But so do the *correct* ones (0.36–0.39), so this isn't a
+  useful "error detector" — the model is **globally underconfident**, not specifically
+  unsure on hot_takes (see the Confidence Calibration section).
 - **What would fix it:** more (and harder) `hot_take` examples; class-weighted loss; or
   accepting the boundary is thin and merging classes — though that abandons the distinction
   I set out to measure.
@@ -236,23 +237,23 @@ to `experience`.
 
 ### Sample classifications
 
-Run through the fine-tuned model (confidences from the softmax). The wrong rows show the
-near-chance confidence discussed above.
+Run through the fine-tuned model (confidences are the max softmax probability). The first
+two are correct, the last two are wrong — note all four confidences land in the same narrow
+0.36–0.38 band.
 
-| Post (truncated) | True | Predicted | Confidence |
-|---|---|---|---|
-| "Methane from livestock is ~80x more potent than CO2 over a 20-year window…" | argument | argument | _NEED (high, ~correct)_ |
-| "Went to a bbq last weekend. There were zero options for me… drove home and cried a little." | experience | experience | _NEED_ |
-| "The egg industry is built on gassing or grinding male chicks alive…" | hot_take | argument | 0.36 |
-| "Hunters are just murderers with a hunting license. Dress it up however you want." | hot_take | experience | 0.36 |
+| Post (truncated) | True | Predicted | Confidence | ✓/✗ |
+|---|---|---|---|---|
+| "Free-range labeling in the US allows as little as two square feet per bird… the label does not mean what most consumers imagine." | argument | argument | 0.37 | ✓ |
+| "I used to eat steak three times a week. I now eat zero steaks a week. I miss it sometimes but not as much as I expected to." | experience | experience | 0.37 | ✓ |
+| "The egg industry is built on gassing or grinding male chicks alive…" | hot_take | argument | 0.36 | ✗ |
+| "Hunters are just murderers with a hunting license. Dress it up however you want." | hot_take | experience | 0.36 | ✗ |
 
-**Why a correct one is reasonable:** the methane post is predicted `argument` because it
-does exactly what the `argument` label describes — a specific quantified claim (80×, 20-year
-window) tied to a causal conclusion. That's the one boundary the model learned cleanly, and
-this is a central example of it.
-
-_(NEED: confidence scores for the two correct rows — re-run the Section 4 inference cell on
-these texts, or any 2 correctly-predicted test rows, and paste the softmax confidence.)_
+**Why a correct one is reasonable:** the free-range-labeling post is predicted `argument`
+because it does exactly what the `argument` label describes — a specific, verifiable claim
+(two square feet per bird; the regulatory standard) used to reason that the label misleads
+consumers. That's the one distinction the model learned cleanly. The telling detail is that
+even this clean correct case is only **0.37** confident — the model picks the right class
+but with almost no margin, which is the subject of the next section.
 
 ## Reflection: learned vs. intended
 
@@ -279,6 +280,38 @@ So the model overfit to the easy signal (evidence → argument) and missed the s
 (claim vs. feeling). Combined with the implausibly strong baseline, the honest read is
 that the *task* I posed is learnable by a large zero-shot model but my *dataset* — small,
 hot_take-poor, and possibly too clean — couldn't teach it to a small one.
+
+## Confidence Calibration (stretch)
+
+**Question:** does a more-confident prediction get it right more often?
+**Answer: barely — because the model is never actually confident.** Across the whole test
+set, the max-softmax confidence lives in a tiny band just above the 0.33 chance floor for
+three classes:
+
+| Group | Confidence range | Mean |
+|---|---|---|
+| Correct predictions (25/32) | 0.36 – 0.39 | ≈ 0.37 |
+| Wrong predictions (7/32) | 0.34 – 0.36 | ≈ 0.35 |
+
+Two things follow:
+
+1. **There is a faint, correctly-directed signal.** Correct predictions average ~0.37 vs.
+   ~0.35 for errors — so higher confidence *does* track higher accuracy, slightly. But the
+   ranges overlap almost completely (0.36 shows up in both), so confidence can't reliably
+   separate right from wrong on any single example.
+2. **The model has no high-confidence regime at all.** The single most confident prediction
+   in the entire test set is **0.39**. The classic calibration question — "is a 90%-confident
+   prediction more reliable than a 60% one?" — is unanswerable here because the model never
+   emits 90% *or even 50%*. Its probabilities are compressed near uniform: it usually ranks
+   the correct class first (hence perfect recall on argument/experience) but with almost no
+   margin over the runner-up.
+
+**Why:** short training (3 epochs), a small dataset, and weight decay leave the decision
+boundaries weak/low-margin, so softmax mass stays spread across classes. **Implication for a
+real tool:** the confidence score is not safe to surface to users (it would always read
+~37%) and can't gate auto-actions (the ">0.9, auto-accept" bucket is empty). A deployment
+would need post-hoc calibration (temperature scaling) or should simply not display
+confidence. This is **not** a well-calibrated classifier; it's a low-margin one.
 
 ## Spec Reflection
 
