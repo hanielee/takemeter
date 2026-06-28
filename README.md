@@ -112,7 +112,7 @@ part of the project.
 
 ### Confusion matrix (fine-tuned)
 
-Rows = true label, columns = predicted. (Supplementary image: [`data/confusion_matrix.png`](data/confusion_matrix.png) — **note: re-export this from Colab; the committed copy is from an earlier run.**)
+Rows = true label, columns = predicted. (Supplementary image: [`data/confusion_matrix.png`](data/confusion_matrix.png).)
 
 |  | pred argument | pred hot_take | pred experience |
 |---|---|---|---|
