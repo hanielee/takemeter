@@ -109,31 +109,27 @@ task-specific training. Each post was sent in its own request with `temperature=
 `max_tokens=20`; the system prompt carried the three label definitions verbatim (plus the
 two edge-case decision rules) and instructed the model to **output only the label name**.
 
-> ⚠️ **Known issue — label-string mismatch (re-run before trusting the baseline).** The
-> prompt below tells the model to output `argument` / `hot_take` / `experience`, but the
-> dataset labels are `arguments` / `hot takes` / `experience`. The parser matches model
-> output against the *dataset* strings, so a reply of "argument" or "hot_take" fails to match
-> and is dropped as **unparseable** — only "experience" parses cleanly. The reported baseline
-> accuracy (0.556) is therefore computed on a **reduced, biased subset**, not all 34 test
-> posts, and is **not yet a valid comparison.** Fix: change the prompt to output the exact
-> strings `arguments` / `hot takes` / `experience` (or normalize in `classify_with_groq`),
-> re-run Section 5, and paste the new output (accuracy + per-class + parseable count).
+An earlier run used label names in the prompt (`argument` / `hot_take`) that didn't match
+the dataset strings (`arguments` / `hot takes`), so non-`experience` replies were dropped as
+unparseable and the baseline was computed on a biased subset. After aligning the prompt to
+the exact dataset strings, **all 34/34 responses parsed** and the baseline is a valid
+comparison: **0.618 accuracy (21/34)**.
 
-**System prompt used (as run — note the label names need the fix above):**
+**System prompt used (corrected — outputs the exact dataset label strings):**
 
 ```
 You are classifying posts from r/vegan.
-Assign each post to exactly one of the following categories.
+Assign each post to exactly one of these three categories.
 
-argument: The post makes a structured case for or against a position (ethical,
+arguments: The post makes a structured case for or against a position (ethical,
 environmental, or health) backed by specific, verifiable reasoning — evidence, studies,
 statistics, or a clear logical chain that would stand on its own if the opinion framing
 were removed.
-Example: "B12 is the one nutrient worth taking seriously on a vegan diet. It's produced by
-bacteria, not animals themselves, which is why supplementation or fortified foods is the
-reliable route — animals are just intermediaries that get it the same way."
+Example: "Animal agriculture is about 14.5% of human-caused greenhouse emissions, and beef
+needs roughly 20x the land per gram of protein as legumes, so cutting it has an outsized
+effect."
 
-hot_take: The post makes a bold, confident opinion or moral judgment with little supporting
+hot takes: The post makes a bold, confident opinion or moral judgment with little supporting
 evidence, or with evidence that is mostly rhetorical, cherry-picked, or decorative rather
 than part of a real argument.
 Example: "Anyone who still eats meat in 2026 just doesn't care about the planet, full stop."
@@ -144,17 +140,18 @@ or friends, venting, or asking the community for help — with little to no gene
 Example: "Three months in and my parents still leave meat on my plate at dinner. How do you
 all deal with family who won't take it seriously?"
 
-If a post combines a personal story with an argument: if removing the personal narrative
-still leaves a self-standing, evidence-backed claim, label it argument. If the reasoning is
-incidental to the personal situation, label it experience.
-If a post cites a fact but offers no reasoning and exists mainly to provoke, label it
-hot_take, not argument.
+Decision rules for borderline posts:
+- Personal story that also makes a case: if removing the personal narrative still leaves a
+  self-standing, evidence-backed claim, label it "arguments"; if the reasoning is incidental
+  to the personal situation, label it "experience".
+- A post that cites a fact but offers no reasoning and exists mainly to provoke is
+  "hot takes", not "arguments".
 
-Respond with ONLY the label name. Do not explain your reasoning.
+Respond with ONLY the label name, exactly as written, and nothing else.
 
-Valid labels:
-argument
-hot_take
+Valid labels (use these exact strings):
+arguments
+hot takes
 experience
 ```
 
@@ -166,20 +163,20 @@ image at [`data/confusion_matrix.png`](data/confusion_matrix.png).
 
 **Headline result: the fine-tuned model collapsed to a single class.** It predicted
 `arguments` for **every** test post, scoring **35.3%** — essentially the trivial
-"always-guess-the-plurality" baseline. The zero-shot LLM scored 55.6% (with the caveat
-above), so fine-tuning **regressed** the classifier. This misses my definition of success
-(beat the baseline AND macro F1 ≥ 0.70) on every count, and the *why* — a hard subjective
-task plus noisy labels — is the finding.
+"always-guess-the-plurality" baseline. The zero-shot LLM scored **61.8%** on the same test
+set, so fine-tuning **regressed** the classifier by ~26 points. This misses my definition of
+success (beat the baseline AND macro F1 ≥ 0.70) on every count, and the *why* — a hard
+subjective task plus noisy labels — is the finding.
 
 ### Overall accuracy
 
 | Model | Accuracy | Macro F1 |
 |---|---|---|
-| Zero-shot baseline (llama-3.3-70b) | 0.556 ⚠️ (biased subset — see label-mismatch note) | _NEED: re-run Section 5_ |
+| Zero-shot baseline (llama-3.3-70b) | **0.618** (21/34) | _NEED: paste Section 5 per-class table_ |
 | Fine-tuned DistilBERT | **0.353** (12/34) | **0.17** |
 
-Δ accuracy ≈ **−0.20** (fine-tuned minus baseline), though the baseline number is not yet
-trustworthy until Section 5 is re-run.
+Δ accuracy = **−0.265** (fine-tuned minus baseline). The baseline now evaluates on all
+**34/34** parseable responses, so the comparison is valid.
 
 ### Per-class metrics (fine-tuned)
 
@@ -196,8 +193,9 @@ Two of three classes have F1 = 0 because the model **never predicted them**. `ar
 gets recall 1.00 only because the model predicts it for everything; its precision (0.35) is
 just the class's share of the test set.
 
-**Baseline per-class:** _NEED — re-run Section 5 (with the label-name fix) and paste the
-`classification_report` so the comparison is class-by-class, not just accuracy._
+**Baseline per-class:** _NEED — paste the Section 5 `classification_report` printout (the
+JSON only stores accuracy) so the comparison is class-by-class. At 0.618 overall the baseline
+clearly distinguishes all three classes to some degree, unlike the collapsed fine-tune._
 
 ### Confusion matrix (fine-tuned)
 
@@ -264,8 +262,8 @@ is internally inconsistent. Faced with a subtle signal and noisy targets across 
 examples, DistilBERT did the mathematically cheap thing and collapsed to one class.
 
 The contrast with the baseline is the lesson: a 70B model can *read the definitions* and
-apply judgment zero-shot (above chance even on the biased subset), but a small model cannot
-*induce* that judgment from 156 noisy examples. What I learned is less about the model and
+apply judgment zero-shot at **61.8%**, but a small model cannot *induce* that judgment from
+156 noisy examples — it scored 35.3%, below even a constant guess on some splits. What I learned is less about the model and
 more about my data pipeline — **on a subjective task, label quality is the binding
 constraint**, and an automated scorer that leaves 39% of labels on a coin-flip can't teach a
 classifier a distinction I couldn't crisply operationalize.
