@@ -172,7 +172,7 @@ subjective task plus noisy labels — is the finding.
 
 | Model | Accuracy | Macro F1 |
 |---|---|---|
-| Zero-shot baseline (llama-3.3-70b) | **0.618** (21/34) | _NEED: paste Section 5 per-class table_ |
+| Zero-shot baseline (llama-3.3-70b) | **0.618** (21/34) | **0.61** |
 | Fine-tuned DistilBERT | **0.353** (12/34) | **0.17** |
 
 Δ accuracy = **−0.265** (fine-tuned minus baseline). The baseline now evaluates on all
@@ -193,9 +193,21 @@ Two of three classes have F1 = 0 because the model **never predicted them**. `ar
 gets recall 1.00 only because the model predicts it for everything; its precision (0.35) is
 just the class's share of the test set.
 
-**Baseline per-class:** _NEED — paste the Section 5 `classification_report` printout (the
-JSON only stores accuracy) so the comparison is class-by-class. At 0.618 overall the baseline
-clearly distinguishes all three classes to some degree, unlike the collapsed fine-tune._
+**Baseline (llama-3.3-70b), per-class:**
+
+| Label | Precision | Recall | F1 | Support |
+|---|---|---|---|---|
+| arguments | 0.67 | 0.50 | 0.57 | 12 |
+| hot takes | 0.71 | 0.45 | 0.56 | 11 |
+| experience | 0.56 | 0.91 | 0.69 | 11 |
+| **macro avg** | 0.65 | 0.62 | **0.61** | 34 |
+
+Unlike the collapsed fine-tune, the baseline **distinguishes all three classes** (every F1 in
+0.56–0.69). Its main tendency is to over-predict `experience` (recall 0.91 but precision 0.56)
+and to be conservative on `hot takes` (recall 0.45) — i.e. when unsure it leans toward "this is
+someone sharing" rather than "this is a bold claim." Even so, macro F1 0.61 vs the fine-tune's
+0.17 is the whole story: reading the definitions zero-shot beats trying to learn them from 156
+noisy examples.
 
 ### Confusion matrix (fine-tuned)
 
